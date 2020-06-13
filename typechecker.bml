@@ -1,0 +1,115 @@
+include {
+  open Term
+
+  val return = Option.return
+  val `val+` = Option.`val+`
+
+  val rec typecheck t m =
+    match t with
+      | Var v     -> return $ Env.insert Env.empty v m
+      | Abs(v, t) ->
+          val+ env = typecheck t $ Mode.compose m Mode.Delay in
+          return $ Env.delete env v
+      | App(x, y) ->
+          let val m' = Mode.compose m Mode.Dereference in
+          val+ env1 = typecheck x m' in
+          val+ env2 = typecheck y m' in
+          return $ Env.overlap env1 env2
+      | Constr(c, xs) ->
+          let val m' = Mode.compose m Mode.Guard in
+          let val f acc env =
+            val+ acc = acc in
+            val+ env = env in
+            return $ Env.overlap acc env
+          in
+          List.fold_left f (return Env.empty) $
+            List.map (fun x -> typecheck x m') xs
+      | Match(t, cs) ->
+          val+ env1 = typecheck t $ Mode.compose m Mode.Dereference in
+          let val envs = List.map (fun c -> typecheck_clause c m) cs in
+          let val f acc env =
+            val+ acc = acc in
+            val+ env = env in
+            return $ Env.overlap acc env
+          in
+            List.fold_left f (return env1) envs
+      | Letrec(bs, t) ->
+          val+ vm : VarMap.t env = typecheck_bindings bs in
+          let val vs = get_bound_variables bs in
+
+          val+ env = typecheck t m in
+          let val (env1, env2) = Env.separate env vs in
+          return $ Env.overlap env1 $
+            VarMap.fold_left (fun (v : var) (acc : env) (env : env) ->
+              Env.overlap acc $
+              Env.compose_mode (Mode.max Mode.Guard $ Option.unwrap $ Env.lookup env2 v) env
+            ) Env.empty vm
+    end
+
+  and typecheck_clause (Clause(p, t)) m =
+    let val Pattern(_, vs) = p in
+    val+ env = typecheck t m in
+    return $ List.fold_left Env.delete env vs
+
+  and typecheck_bindings bs =
+    let module LM = List.Monad Option in
+
+    let val vs = get_bound_variables bs in
+
+    let val f (Bind(_, t)) = typecheck t Mode.Return in
+    val+ envs = LM.map f bs in
+
+    let
+      val check env =
+        let
+          val g v =
+            match Env.lookup env v with
+              | None   -> return () // `None` indicates `Ignore`.
+              | Some m ->
+                  open Mode in
+                  if m > Guard
+                  then None
+                  else return ()
+            end
+        in
+          LM.map g vs
+    in
+    val+ _ : list (list unit) = LM.map check envs in
+
+    let val envs' : list (env * env) = List.map (fun env -> Env.separate env vs) envs in
+    let val m : VarMap.t (env * env) = VarMap.from_list $ List.zip vs envs' in
+
+    let val must_lookup x y = Option.unwrap $ VarMap.lookup x y in
+
+    // Up to `Ignore`.
+    let val equal m m' =
+      VarMap.fold_left
+        (fun v acc (env, _) -> Bool.r#and acc $ Env.equal env $ Pair.fst $ must_lookup v m')
+        true
+        m
+    in
+
+    let
+      val rec fix (m : VarMap.t (env * env)) =
+        let
+          val h (env : env, rec_env : env) =
+            ( Env.overlap env $
+                Env.fold_left
+                  (fun v acc mode -> Env.overlap acc $ Env.compose_mode mode $ Pair.fst $ must_lookup v m)
+                  Env.empty
+                  rec_env
+            , rec_env
+            )
+
+          val m' : VarMap.t (env * env) = VarMap.map h m
+        in
+        if equal m m'
+        then m
+        else fix m'
+
+      val ret = VarMap.map Pair.fst $ fix m
+    in
+    return ret
+} : {
+  val typecheck : term -> mode -> option env
+}

@@ -1,0 +1,59 @@
+datatype t =
+  | Ignore      // Not used at all.
+  | Delay       // Inside a lambda abstraction.
+  | Guard       // Under a constructor or a record.
+  | Return      // Return as is.
+  | Dereference // May inspect the value in any way.
+
+open {
+  val ord = function
+    | Ignore      -> 0
+    | Delay       -> 1
+    | Guard       -> 2
+    | Return      -> 3
+    | Dereference -> 4
+  end
+}
+
+include Ord.Make {
+  type t = t
+  val compare x y = Int.compare (ord x) (ord y)
+} : Ord.OPS where type t := t
+
+include {
+  val compose x y =
+    match (x, y) with
+      // The order of clauses are very important.
+      | (Ignore, _)      -> Ignore
+      | (_, Ignore)      -> Ignore
+      | (Delay, _)       -> Delay
+      | (Dereference, _) -> Dereference
+      | (_, Dereference) -> Dereference
+      | (_, Delay)       -> Delay
+      | (Guard, _)       -> Guard
+      | (Return, Guard)  -> Guard
+      | (Return, Return) -> Return
+    end
+} : {
+  // Associative and idempotent, but not commutative.
+  val compose : t -> t -> t
+}
+
+// `compose` and `Return` form a monoid.
+// (And `Ignore` is the zero element.)
+include {
+  val empty = Return
+  val `<>` = compose
+} : Monoid.S where type t := t
+
+include {
+  val show = function
+    | Ignore      -> "ignore"
+    | Delay       -> "delay"
+    | Guard       -> "guard"
+    | Return      -> "return"
+    | Dereference -> "dereference"
+  end
+} : {
+  val show : t -> string
+}

@@ -1,0 +1,25 @@
+submodule "variable"
+submodule "syntax"
+submodule Mode = "mode"
+submodule "env"
+submodule Typechecker = "typechecker"
+
+open Typechecker
+
+open {
+  open Term
+
+  val check t =
+    match typecheck t Mode.Return with
+      | None     -> print_endline "found vicious cycle!"
+      | Some env ->
+          let val _ = print_endline "well-typed!" in
+          print_endline $ Env.show env
+    end
+
+  val _ = check $ Var "a"
+
+  val _ = check $ letrec
+    [ Bind("a", Var "b")
+    ] $ Var "a"
+}

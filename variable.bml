@@ -1,0 +1,3 @@
+type var = string
+
+module VarMap = Map.Make String

@@ -1,0 +1,26 @@
+module Term = {
+  datatype t =
+    | Var of var
+    | Letrec of list binding * t
+    | Abs of var * t
+    | App of t * t
+    | Constr of constr * list t
+    | Match of t * list clause
+
+  and binding =
+    | Bind of var * t
+
+  and constr = C of string
+
+  and clause =
+    | Clause of pattern * t
+
+  and pattern = Pattern of constr * list var
+
+  val letrec bs x = Letrec(bs, x)
+
+  val get_bound_variables bs =
+    List.fold_right (fun (Bind(v, _)) acc -> v :: acc) [] bs
+}
+
+type term = Term.t
